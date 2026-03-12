@@ -19,3 +19,9 @@
 - Changed the default workspace to `/homeassistant`
 - Added Home Assistant-specific terminal shortcut hints in the sidebar
 - Added clickable terminal shortcuts for automations, configuration, scripts, searches, and HA logs
+
+## 0.2.2
+
+- Changed the default sandbox mode to `danger-full-access` for easier Home Assistant troubleshooting
+- Switched the Home Assistant sidebar icon to `mdi:home-assistant`
+- Updated add-on branding to use the official Codex artwork

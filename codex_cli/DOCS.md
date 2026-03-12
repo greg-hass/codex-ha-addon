@@ -12,6 +12,7 @@ The add-on runs the official Codex CLI inside a Home Assistant add-on container 
 
 - Codex auth state: `/data/.codex`
 - Default workspace: `/homeassistant`
+- Default sandbox: `danger-full-access`
 - Web UI and API: port `8000`
 
 ## Mapped directories

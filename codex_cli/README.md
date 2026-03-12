@@ -21,7 +21,7 @@ That means the login flow matches the current Codex CLI experience: open `https:
 ```yaml
 workspace_dir: /homeassistant
 model: ""
-sandbox_mode: workspace-write
+sandbox_mode: danger-full-access
 approval_policy: never
 enable_web_search: false
 log_level: info
@@ -31,7 +31,7 @@ Notes:
 
 - Leave `model` blank to use Codex CLI defaults.
 - `workspace_dir` should point at a mapped directory such as `/homeassistant`, `/addons`, `/backup`, `/share`, `/media`, `/ssl`, or `/all_addon_configs`.
-- `danger-full-access` is available, but it should be used carefully.
+- The default sandbox is now `danger-full-access` so Codex can inspect and edit Home Assistant files more freely inside the add-on container.
 
 The add-on now mounts these Home Assistant-managed paths inside the container:
 
