@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install add-on dependencies
+        run: pip install -r codex_cli/requirements.txt
+
+      - name: Verify repository layout
+        run: |
+          test -f repository.json
+          test -f codex_cli/config.yaml
+          test -f codex_cli/Dockerfile
+          test -f codex_cli/run.sh
+          test -f codex_cli/app/main.py
+
+      - name: Compile Python sources
+        run: python -m py_compile codex_cli/app/__init__.py codex_cli/app/config.py codex_cli/app/codex_manager.py codex_cli/app/main.py
+
+      - name: Import FastAPI app
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "codex_cli")
+          import app.main
+          assert app.main.app.title == "Codex CLI Add-on"
+          print(app.main.app.title)
+          PY
