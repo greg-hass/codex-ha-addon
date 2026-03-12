@@ -44,7 +44,7 @@ map:
     read_only: false
   - type: all_addon_configs
     read_only: false
-panel_icon: "mdi:home-assistant"
+panel_icon: "mdi:console"
 panel_title: "Codex CLI"
 panel_admin: false
 ingress: true
