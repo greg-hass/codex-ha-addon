@@ -23,5 +23,5 @@
 ## 0.2.2
 
 - Changed the default sandbox mode to `danger-full-access` for easier Home Assistant troubleshooting
-- Switched the Home Assistant sidebar icon to `mdi:console`
+- Switched the Home Assistant sidebar icon to `mdi:application-braces-outline`
 - Updated add-on branding to use the same icon asset as the macOS Codex app
