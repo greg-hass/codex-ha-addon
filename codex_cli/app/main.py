@@ -270,10 +270,12 @@ async def root() -> str:
         </div>
 
         <div>
-          <p class="tiny">Good first commands</p>
-          <p class="tiny"><code>codex</code> opens the interactive agent.</p>
-          <p class="tiny"><code>ls -la /config</code> inspects your HA files.</p>
-          <p class="tiny"><code>ha core logs</code> can help when the HA CLI is available.</p>
+          <p class="tiny">Home Assistant shortcuts</p>
+          <p class="tiny"><code>cd /homeassistant && ls -la</code> starts in your HA config.</p>
+          <p class="tiny"><code>cat /homeassistant/automations.yaml</code> opens your automations.</p>
+          <p class="tiny"><code>rg "entity_id" /homeassistant</code> searches config references.</p>
+          <p class="tiny"><code>codex</code> opens the interactive agent in the current directory.</p>
+          <p class="tiny"><code>ha core logs</code> helps with runtime errors when the HA CLI is available.</p>
         </div>
       </aside>
 

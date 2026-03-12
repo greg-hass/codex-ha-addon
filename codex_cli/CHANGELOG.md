@@ -17,3 +17,4 @@
 
 - Expanded add-on mounts to include Home Assistant config, backups, media, add-ons, SSL, share, and addon config directories
 - Changed the default workspace to `/homeassistant`
+- Added Home Assistant-specific terminal shortcut hints in the sidebar
