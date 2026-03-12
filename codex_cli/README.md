@@ -1,10 +1,10 @@
 # Codex CLI Home Assistant Add-on
 
-This project turns Home Assistant into a thin wrapper around the real [Codex CLI](https://github.com/openai/codex). The add-on exposes a small ingress UI that lets you:
+This project turns Home Assistant into a thin wrapper around the real [Codex CLI](https://github.com/openai/codex). The add-on exposes an ingress terminal UI that lets you:
 
 - sign in with OpenAI device-code OAuth
 - persist the resulting Codex session in `/data/.codex`
-- run `codex exec` prompts against `/config` or another mapped directory
+- run the interactive Codex terminal against `/config` or another mapped directory
 
 ## What it does
 
@@ -12,7 +12,7 @@ The add-on does not proxy the OpenAI API directly. Instead, it installs the offi
 
 1. `codex login --device-auth`
 2. store auth state under the add-on data directory
-3. `codex exec ...` for prompt execution
+3. run `codex` in a PTY-backed browser terminal
 
 That means the login flow matches the current Codex CLI experience: open `https://auth.openai.com/codex/device`, enter the short code, and the add-on becomes authenticated once the CLI finishes the device flow.
 
@@ -50,13 +50,11 @@ The ingress UI uses these endpoints:
 - `GET /api/auth/status`
 - `POST /api/auth/login`
 - `GET /api/auth/login/{session_id}`
-- `DELETE /api/auth/login/{session_id}`
-- `POST /api/exec`
-
-`POST /api/exec` streams plain-text Codex output back to the browser.
+- `POST /api/terminal/restart`
+- `WS /ws/terminal`
 
 ## Important limitations
 
 - This add-on currently targets `amd64` and `aarch64` only, because those are the Codex CLI Linux architectures available in the npm package metadata.
-- The UI is intentionally minimal. It is designed for login and prompt execution, not for replicating the full Codex terminal UI.
+- The UI is terminal-focused and intentionally lightweight, but it is still a browser wrapper around the CLI rather than a native SSH shell.
 - The add-on does not install a Home Assistant integration or services yet. It is an ingress-based add-on first.

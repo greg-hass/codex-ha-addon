@@ -2,11 +2,11 @@
 
 ## Overview
 
-The add-on runs the official Codex CLI inside a Home Assistant add-on container and exposes a small ingress UI for:
+The add-on runs the official Codex CLI inside a Home Assistant add-on container and exposes a PTY-backed ingress UI for:
 
 - OpenAI device-code login
 - checking login status
-- running `codex exec` against a mapped working directory
+- running an interactive Codex terminal against a mapped working directory
 
 ## Runtime layout
 
@@ -41,22 +41,19 @@ Starts `codex login --device-auth` and returns the login session, verification U
 
 Polls the in-progress device auth session.
 
-### `POST /api/exec`
+### `POST /api/terminal/restart`
 
-Request body:
+Restarts the PTY-backed Codex terminal process.
 
-```json
-{
-  "prompt": "Review my Home Assistant automations in /config",
-  "cwd": "/config",
-  "model": "gpt-5-codex"
-}
-```
+### `WS /ws/terminal`
 
-The response is streamed as plain text from the Codex CLI process.
+WebSocket endpoint used by the browser terminal. It accepts:
+
+- `{"type":"input","data":"..."}` for keystrokes
+- `{"type":"resize","cols":120,"rows":36}` for terminal resizing
 
 ## Notes
 
 - The add-on currently targets `amd64` and `aarch64`.
 - Device auth is based on the current Codex CLI flow, which prints `https://auth.openai.com/codex/device` and a short verification code.
-- The add-on is intentionally minimal and does not try to reproduce the full terminal UI inside Home Assistant.
+- The add-on uses a browser terminal to interact with the real Codex CLI process running in the container.

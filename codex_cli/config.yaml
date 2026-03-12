@@ -1,5 +1,5 @@
 name: "Codex CLI"
-version: "0.1.0"
+version: "0.2.0"
 slug: "codex_cli"
 description: "Run OpenAI Codex inside Home Assistant and sign in with device-code OAuth"
 url: "https://github.com/openai/codex"
@@ -37,4 +37,4 @@ panel_title: "Codex CLI"
 panel_admin: false
 ingress: true
 ingress_port: 8000
-ingress_stream: false
+ingress_stream: true

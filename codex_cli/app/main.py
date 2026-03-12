@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-from .codex_manager import CodexManager, strip_ansi
+from .codex_manager import CodexManager
 from .config import settings
 
 logging.basicConfig(
@@ -22,17 +24,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 manager = CodexManager(settings)
-
-
-class PromptRequest(BaseModel):
-    """Request body for prompt execution."""
-
-    prompt: str = Field(..., min_length=1)
-    cwd: str | None = None
-    model: str | None = None
-    sandbox_mode: str | None = None
-    approval_policy: str | None = None
-    web_search: bool | None = None
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 @asynccontextmanager
@@ -41,13 +33,14 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     settings.codex_home_path.mkdir(parents=True, exist_ok=True)
     settings.workspace_path.mkdir(parents=True, exist_ok=True)
     yield
+    manager.stop_terminal()
     logger.info("Stopping Codex Home Assistant add-on")
 
 
 app = FastAPI(
     title="Codex CLI Add-on",
     description="Run the Codex CLI inside Home Assistant and sign in with OpenAI device auth.",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -57,276 +50,249 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
 async def root() -> str:
-    """Serve the built-in ingress UI."""
+    """Serve the browser terminal UI."""
     return f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Codex CLI</title>
+  <title>Codex Terminal</title>
+  <link rel="stylesheet" href="./static/xterm.css">
   <style>
     :root {{
-      --bg: #f3efe6;
-      --card: rgba(255, 252, 245, 0.88);
-      --ink: #1c241f;
-      --muted: #5d655f;
-      --accent: #135d66;
+      --page: #eee8dc;
+      --panel: rgba(253, 250, 243, 0.9);
+      --border: rgba(20, 36, 29, 0.12);
+      --ink: #18221d;
+      --muted: #5f675f;
+      --accent: #145f68;
       --warn: #8a4b28;
-      --border: rgba(28, 36, 31, 0.1);
-      --shadow: 0 24px 70px rgba(29, 40, 32, 0.14);
+      --shadow: 0 24px 70px rgba(27, 38, 31, 0.14);
+      --term: #071713;
     }}
     * {{ box-sizing: border-box; }}
     body {{
       margin: 0;
       min-height: 100vh;
-      color: var(--ink);
       font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--ink);
       background:
-        radial-gradient(circle at top left, rgba(208, 140, 96, 0.22), transparent 35%),
-        radial-gradient(circle at right, rgba(19, 93, 102, 0.15), transparent 30%),
-        linear-gradient(180deg, #f7f4eb 0%, var(--bg) 100%);
+        radial-gradient(circle at top left, rgba(208, 140, 96, 0.22), transparent 28%),
+        radial-gradient(circle at right, rgba(20, 95, 104, 0.14), transparent 26%),
+        linear-gradient(180deg, #f6f2ea 0%, var(--page) 100%);
     }}
-    .shell {{
-      max-width: 1100px;
+    .page {{
+      max-width: 1400px;
       margin: 0 auto;
-      padding: 24px;
+      padding: 22px;
     }}
-    .hero {{
+    .layout {{
       display: grid;
-      grid-template-columns: 1.3fr 0.9fr;
-      gap: 20px;
-      align-items: stretch;
+      grid-template-columns: 320px minmax(0, 1fr);
+      gap: 18px;
+      min-height: calc(100vh - 44px);
     }}
     .card {{
-      background: var(--card);
+      background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 24px;
       box-shadow: var(--shadow);
       backdrop-filter: blur(10px);
     }}
-    .intro, .auth-card, .panel {{
-      padding: 24px;
+    .sidebar {{
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
     }}
     .eyebrow {{
       text-transform: uppercase;
       letter-spacing: 0.18em;
       font-size: 0.72rem;
       color: var(--accent);
-      margin-bottom: 14px;
-      font-weight: 700;
+      font-weight: 800;
     }}
     h1 {{
-      margin: 0;
-      font-size: clamp(2rem, 4vw, 3.7rem);
-      line-height: 0.95;
-      font-weight: 800;
-      max-width: 10ch;
-    }}
-    h2 {{
-      margin-top: 0;
-      margin-bottom: 10px;
-      font-size: 1.15rem;
+      margin: 8px 0 12px;
+      font-size: 2.7rem;
+      line-height: 0.92;
+      letter-spacing: -0.04em;
     }}
     p {{
-      color: var(--muted);
+      margin: 0;
       line-height: 1.6;
+      color: var(--muted);
     }}
-    .auth-card {{
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-      justify-content: center;
+    .status {{
+      display: grid;
+      gap: 10px;
+      font-size: 0.95rem;
     }}
-    .status-pill {{
+    .pill {{
       display: inline-flex;
+      width: fit-content;
       align-items: center;
       gap: 10px;
-      width: fit-content;
       padding: 10px 14px;
       border-radius: 999px;
-      background: rgba(19, 93, 102, 0.08);
+      background: rgba(20, 95, 104, 0.08);
       color: var(--accent);
-      font-weight: 700;
+      font-weight: 800;
     }}
-    .status-pill::before {{
+    .pill::before {{
       content: "";
       width: 10px;
       height: 10px;
       border-radius: 50%;
       background: currentColor;
     }}
+    .code-box {{
+      border-radius: 18px;
+      background: rgba(20, 95, 104, 0.06);
+      padding: 14px;
+      font-family: "SFMono-Regular", "Cascadia Code", monospace;
+      overflow-wrap: anywhere;
+      min-height: 74px;
+    }}
+    .device-code {{
+      font-size: 1.7rem;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+    }}
     .actions {{
       display: flex;
       flex-wrap: wrap;
       gap: 12px;
     }}
-    button, input, textarea {{
-      font: inherit;
-    }}
     button {{
       border: 0;
       border-radius: 14px;
-      padding: 12px 18px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: transform 160ms ease, opacity 160ms ease;
-    }}
-    button:hover {{
-      transform: translateY(-1px);
-    }}
-    button:disabled {{
-      opacity: 0.55;
-      cursor: not-allowed;
-      transform: none;
-    }}
-    .primary {{
-      background: var(--accent);
-      color: white;
-    }}
-    .secondary {{
-      background: rgba(19, 93, 102, 0.1);
-      color: var(--accent);
-    }}
-    .grid {{
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 20px;
-      margin-top: 20px;
-    }}
-    .code {{
-      margin: 0;
-      padding: 16px;
-      border-radius: 18px;
-      background: #18231f;
-      color: #f5f3ee;
-      min-height: 110px;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      font-family: "SFMono-Regular", "Cascadia Code", monospace;
-    }}
-    .device-code {{
-      font-size: 2rem;
-      letter-spacing: 0.18em;
+      padding: 12px 16px;
+      font: inherit;
       font-weight: 800;
-      margin: 8px 0 0;
+      cursor: pointer;
+      transition: transform 140ms ease, opacity 140ms ease;
     }}
-    label {{
-      display: block;
-      margin-bottom: 8px;
-      font-size: 0.9rem;
-      font-weight: 700;
-      color: var(--muted);
-    }}
-    textarea, input {{
-      width: 100%;
-      border: 1px solid rgba(19, 93, 102, 0.18);
-      border-radius: 16px;
-      padding: 14px;
-      background: rgba(255, 255, 255, 0.9);
-      color: var(--ink);
-    }}
-    textarea {{
-      min-height: 180px;
-      resize: vertical;
-    }}
-    .meta {{
+    button:hover {{ transform: translateY(-1px); }}
+    button:disabled {{ opacity: 0.55; cursor: not-allowed; transform: none; }}
+    .primary {{ background: var(--accent); color: white; }}
+    .secondary {{ background: rgba(20, 95, 104, 0.1); color: var(--accent); }}
+    .terminal-shell {{
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-      margin-top: 16px;
+      grid-template-rows: auto 1fr;
+      min-height: 0;
+      overflow: hidden;
+    }}
+    .terminal-header {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+    }}
+    .terminal-copy {{
+      display: grid;
+      gap: 4px;
+    }}
+    .terminal-copy strong {{
+      font-size: 1.3rem;
+    }}
+    .terminal-wrap {{
+      background: linear-gradient(180deg, #0a1c17 0%, var(--term) 100%);
+      padding: 14px;
+      min-height: 0;
+    }}
+    #terminal {{
+      width: 100%;
+      height: 100%;
+      min-height: calc(100vh - 130px);
     }}
     .tiny {{
       font-size: 0.88rem;
       color: var(--muted);
     }}
-    .stream {{
-      min-height: 420px;
-      max-height: 62vh;
-      overflow: auto;
-    }}
-    a {{ color: var(--accent); }}
     code {{
-      background: rgba(19, 93, 102, 0.08);
-      padding: 0.15rem 0.35rem;
+      background: rgba(20, 95, 104, 0.08);
+      padding: 0.16rem 0.34rem;
       border-radius: 0.4rem;
     }}
-    @media (max-width: 900px) {{
-      .hero, .grid, .meta {{
+    a {{ color: var(--accent); }}
+    @media (max-width: 980px) {{
+      .layout {{
         grid-template-columns: 1fr;
       }}
-      .shell {{
-        padding: 16px;
-      }}
-      .device-code {{
-        font-size: 1.6rem;
+      #terminal {{
+        min-height: 68vh;
       }}
     }}
   </style>
 </head>
 <body>
-  <div class="shell">
-    <section class="hero">
-      <article class="card intro">
-        <div class="eyebrow">Home Assistant Add-on</div>
-        <h1>Codex in your sidebar.</h1>
-        <p>
-          Sign in with OpenAI device auth, keep the Codex session persisted in <code>{settings.codex_home}</code>,
-          and run prompts against your Home Assistant config or shared folders without leaving Home Assistant.
-        </p>
-        <p class="tiny">
-          Default workspace: <code>{settings.workspace_dir}</code> |
-          Default sandbox: <code>{settings.sandbox_mode}</code> |
-          Default approval policy: <code>{settings.approval_policy}</code>
-        </p>
-      </article>
-      <aside class="card auth-card">
-        <div class="status-pill" id="auth-pill">Checking login...</div>
-        <div id="auth-message" class="tiny"></div>
+  <div class="page">
+    <div class="layout">
+      <aside class="card sidebar">
+        <div>
+          <div class="eyebrow">Home Assistant Add-on</div>
+          <h1>Codex terminal.</h1>
+          <p>Use the real Codex CLI in a browser terminal with access to <code>{settings.workspace_dir}</code>. This is the place to inspect logs, edit Home Assistant config, and fix issues directly on the server.</p>
+        </div>
+
+        <div class="status">
+          <div class="pill" id="auth-pill">Checking login...</div>
+          <div id="auth-message" class="tiny"></div>
+        </div>
+
         <div class="actions">
           <button id="login-button" class="primary">Connect with OpenAI</button>
           <button id="refresh-button" class="secondary">Refresh status</button>
+          <button id="restart-button" class="secondary">Restart terminal</button>
         </div>
+
         <div id="device-panel" hidden>
-          <div class="tiny">Verification URL</div>
-          <p><a id="device-url" href="#" target="_blank" rel="noreferrer"></a></p>
-          <div class="tiny">One-time code</div>
-          <div id="device-code" class="device-code">....-.....</div>
+          <p class="tiny">Verification URL</p>
+          <div class="code-box"><a id="device-url" href="#" target="_blank" rel="noreferrer"></a></div>
+          <p class="tiny" style="margin-top:12px;">One-time code</p>
+          <div id="device-code" class="code-box device-code">....-.....</div>
+        </div>
+
+        <div>
+          <p class="tiny">Defaults</p>
+          <p class="tiny">Workspace: <code>{settings.workspace_dir}</code></p>
+          <p class="tiny">Sandbox: <code>{settings.sandbox_mode}</code></p>
+          <p class="tiny">Approval: <code>{settings.approval_policy}</code></p>
+        </div>
+
+        <div>
+          <p class="tiny">Good first commands</p>
+          <p class="tiny"><code>codex</code> opens the interactive agent.</p>
+          <p class="tiny"><code>ls -la /config</code> inspects your HA files.</p>
+          <p class="tiny"><code>ha core logs</code> can help when the HA CLI is available.</p>
         </div>
       </aside>
-    </section>
 
-    <section class="grid">
-      <article class="card panel">
-        <h2>Run a prompt</h2>
-        <label for="prompt">Prompt</label>
-        <textarea id="prompt" placeholder="Explain this automation, refactor YAML, or review a script in /config."></textarea>
-        <div class="meta">
-          <div>
-            <label for="cwd">Working directory</label>
-            <input id="cwd" value="{settings.workspace_dir}" />
-          </div>
-          <div>
-            <label for="model">Model (optional)</label>
-            <input id="model" value="{settings.model}" placeholder="Use Codex default if blank" />
+      <main class="card terminal-shell">
+        <div class="terminal-header">
+          <div class="terminal-copy">
+            <strong>Interactive Codex CLI</strong>
+            <span class="tiny" id="terminal-status">Starting terminal...</span>
           </div>
         </div>
-        <div class="actions" style="margin-top: 16px;">
-          <button id="run-button" class="primary">Run Codex</button>
+        <div class="terminal-wrap">
+          <div id="terminal"></div>
         </div>
-      </article>
-
-      <article class="card panel">
-        <h2>CLI output</h2>
-        <pre id="output" class="code stream">Waiting for a prompt...</pre>
-      </article>
-    </section>
+      </main>
+    </div>
   </div>
 
+  <script src="./static/xterm.js"></script>
+  <script src="./static/xterm-addon-fit.js"></script>
   <script>
     const authPill = document.getElementById("auth-pill");
     const authMessage = document.getElementById("auth-message");
@@ -335,16 +301,20 @@ async def root() -> str:
     const deviceCode = document.getElementById("device-code");
     const loginButton = document.getElementById("login-button");
     const refreshButton = document.getElementById("refresh-button");
-    const runButton = document.getElementById("run-button");
-    const promptInput = document.getElementById("prompt");
-    const cwdInput = document.getElementById("cwd");
-    const modelInput = document.getElementById("model");
-    const output = document.getElementById("output");
+    const restartButton = document.getElementById("restart-button");
+    const terminalStatus = document.getElementById("terminal-status");
     let loginSessionId = null;
     let loginPoller = null;
+    let socket = null;
 
     function apiUrl(path) {{
       return new URL(path, window.location.href).toString();
+    }}
+
+    function wsUrl(path) {{
+      const url = new URL(path, window.location.href);
+      url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+      return url.toString();
     }}
 
     async function parseError(response) {{
@@ -357,25 +327,41 @@ async def root() -> str:
       }}
     }}
 
+    const term = new Terminal({{
+      convertEol: true,
+      cursorBlink: true,
+      fontFamily: '"SFMono-Regular", Consolas, monospace',
+      fontSize: 14,
+      theme: {{
+        background: "#071713",
+        foreground: "#f4f3ed",
+        cursor: "#cfe7d3",
+        selectionBackground: "rgba(207, 231, 211, 0.25)"
+      }},
+      scrollback: 5000
+    }});
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(document.getElementById("terminal"));
+    fitAddon.fit();
+
     async function refreshStatus() {{
       try {{
         const response = await fetch(apiUrl("api/auth/status"));
-        if (!response.ok) {{
-          throw new Error(await parseError(response));
-        }}
+        if (!response.ok) throw new Error(await parseError(response));
         const data = await response.json();
         authPill.textContent = data.logged_in ? "Connected" : "Not connected";
         authMessage.textContent = data.message;
         authPill.style.color = data.logged_in ? "var(--accent)" : "var(--warn)";
-        authPill.style.background = data.logged_in ? "rgba(19, 93, 102, 0.08)" : "rgba(208, 140, 96, 0.12)";
+        authPill.style.background = data.logged_in ? "rgba(20, 95, 104, 0.08)" : "rgba(208, 140, 96, 0.12)";
         if (data.logged_in) {{
           devicePanel.hidden = true;
         }}
       }} catch (error) {{
         authPill.textContent = "Status unavailable";
-        authMessage.textContent = error.message;
         authPill.style.color = "var(--warn)";
         authPill.style.background = "rgba(208, 140, 96, 0.12)";
+        authMessage.textContent = error.message;
       }}
     }}
 
@@ -383,9 +369,7 @@ async def root() -> str:
       loginButton.disabled = true;
       try {{
         const response = await fetch(apiUrl("api/auth/login"), {{ method: "POST" }});
-        if (!response.ok) {{
-          throw new Error(await parseError(response));
-        }}
+        if (!response.ok) throw new Error(await parseError(response));
         const data = await response.json();
         loginSessionId = data.id;
         if (data.url) {{
@@ -397,9 +381,7 @@ async def root() -> str:
         }}
         devicePanel.hidden = false;
         authMessage.textContent = "Finish login in your browser. This page will update automatically.";
-        if (loginPoller) {{
-          window.clearInterval(loginPoller);
-        }}
+        if (loginPoller) window.clearInterval(loginPoller);
         loginPoller = window.setInterval(pollLogin, 2000);
       }} catch (error) {{
         authMessage.textContent = error.message;
@@ -412,9 +394,7 @@ async def root() -> str:
       if (!loginSessionId) return;
       try {{
         const response = await fetch(apiUrl(`api/auth/login/${{loginSessionId}}`));
-        if (!response.ok) {{
-          throw new Error(await parseError(response));
-        }}
+        if (!response.ok) throw new Error(await parseError(response));
         const data = await response.json();
         if (data.url) {{
           deviceUrl.href = data.url;
@@ -429,52 +409,84 @@ async def root() -> str:
           await refreshStatus();
         }}
       }} catch (error) {{
-        if (loginPoller) {{
-          window.clearInterval(loginPoller);
-          loginPoller = null;
-        }}
+        if (loginPoller) window.clearInterval(loginPoller);
+        loginPoller = null;
         authMessage.textContent = error.message;
       }}
     }}
 
-    async function runPrompt() {{
-      const prompt = promptInput.value.trim();
-      if (!prompt) return;
-      runButton.disabled = true;
-      output.textContent = "";
+    async function restartTerminal() {{
+      restartButton.disabled = true;
       try {{
-        const response = await fetch(apiUrl("api/exec"), {{
-          method: "POST",
-          headers: {{ "Content-Type": "application/json" }},
-          body: JSON.stringify({{
-            prompt,
-            cwd: cwdInput.value.trim() || null,
-            model: modelInput.value.trim() || null
-          }})
-        }});
-        if (!response.ok || !response.body) {{
-          throw new Error(await parseError(response));
-        }}
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        while (true) {{
-          const {{ value, done }} = await reader.read();
-          if (done) break;
-          output.textContent += decoder.decode(value, {{ stream: true }});
-          output.scrollTop = output.scrollHeight;
-        }}
+        const response = await fetch(apiUrl("api/terminal/restart"), {{ method: "POST" }});
+        if (!response.ok) throw new Error(await parseError(response));
+        term.reset();
+        if (socket) socket.close();
+        connectTerminal();
       }} catch (error) {{
-        output.textContent = error.message;
+        terminalStatus.textContent = error.message;
       }} finally {{
-        runButton.disabled = false;
+        restartButton.disabled = false;
       }}
     }}
 
+    function sendResize() {{
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      fitAddon.fit();
+      socket.send(JSON.stringify({{
+        type: "resize",
+        cols: term.cols,
+        rows: term.rows
+      }}));
+    }}
+
+    function connectTerminal() {{
+      terminalStatus.textContent = "Connecting to terminal...";
+      socket = new WebSocket(wsUrl("ws/terminal"));
+
+      socket.addEventListener("open", () => {{
+        terminalStatus.textContent = "Terminal connected";
+        sendResize();
+      }});
+
+      socket.addEventListener("message", (event) => {{
+        try {{
+          const payload = JSON.parse(event.data);
+          if (payload.type === "status") {{
+            terminalStatus.textContent = payload.running ? `Connected to ${payload.cwd}` : "Terminal stopped";
+            return;
+          }}
+          if (payload.type === "output") {{
+            term.write(payload.data);
+            return;
+          }}
+        }} catch (_error) {{
+          term.write(event.data);
+        }}
+      }});
+
+      socket.addEventListener("close", () => {{
+        terminalStatus.textContent = "Terminal disconnected";
+      }});
+
+      socket.addEventListener("error", () => {{
+        terminalStatus.textContent = "WebSocket error";
+      }});
+    }}
+
+    term.onData((data) => {{
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({{ type: "input", data }}));
+    }});
+
+    window.addEventListener("resize", sendResize);
     loginButton.addEventListener("click", startLogin);
     refreshButton.addEventListener("click", refreshStatus);
-    runButton.addEventListener("click", runPrompt);
+    restartButton.addEventListener("click", restartTerminal);
+
     refreshStatus();
+    connectTerminal();
+    setTimeout(sendResize, 150);
   </script>
 </body>
 </html>
@@ -485,12 +497,14 @@ async def root() -> str:
 async def health() -> JSONResponse:
     """Expose a basic health payload."""
     auth = await manager.login_status()
+    terminal = manager.terminal_status()
     return JSONResponse(
         {
             "status": "ok",
             "logged_in": auth["logged_in"],
             "workspace_dir": settings.workspace_dir,
             "codex_home": settings.codex_home,
+            "terminal": terminal,
         }
     )
 
@@ -505,13 +519,11 @@ async def auth_status() -> JSONResponse:
 async def auth_login() -> JSONResponse:
     """Start a new device auth login flow."""
     session = manager.start_login()
-
     for _ in range(20):
         details = await manager.get_login_session(session.id)
         if details.get("url") and details.get("code"):
             return JSONResponse(details)
         await asyncio.sleep(0.25)
-
     return JSONResponse(await manager.get_login_session(session.id))
 
 
@@ -524,54 +536,61 @@ async def auth_login_status(session_id: str) -> JSONResponse:
         raise HTTPException(status_code=404, detail="Login session not found") from exc
 
 
-@app.delete("/api/auth/login/{session_id}")
-async def auth_login_cancel(session_id: str) -> JSONResponse:
-    """Cancel a running device auth flow."""
-    if not manager.cancel_login(session_id):
-        raise HTTPException(status_code=404, detail="Login session not found")
-    return JSONResponse({"ok": True})
+@app.post("/api/terminal/restart")
+async def restart_terminal() -> JSONResponse:
+    """Restart the interactive Codex PTY."""
+    session = manager.restart_terminal(asyncio.get_running_loop())
+    return JSONResponse(
+        {
+            "session_id": session.id,
+            "cwd": session.cwd,
+            "cols": session.cols,
+            "rows": session.rows,
+        }
+    )
 
 
-@app.post("/api/exec")
-async def exec_prompt(payload: PromptRequest) -> StreamingResponse:
-    """Stream Codex CLI output for a single prompt."""
-    auth = await manager.login_status()
-    if not auth["logged_in"]:
-        raise HTTPException(
-            status_code=409,
-            detail="Codex is not logged in. Start device auth first.",
-        )
-
+@app.websocket("/ws/terminal")
+async def terminal_socket(websocket: WebSocket) -> None:
+    """Bridge the browser terminal to the Codex PTY."""
+    await websocket.accept()
+    loop = asyncio.get_running_loop()
     try:
-        command, workdir = manager.build_exec_command(
-            prompt=payload.prompt,
-            cwd=payload.cwd,
-            model=payload.model,
-            sandbox_mode=payload.sandbox_mode,
-            approval_policy=payload.approval_policy,
-            web_search=payload.web_search,
+        queue, session = manager.subscribe_terminal(loop)
+        await websocket.send_text(json.dumps({"type": "status", **manager.terminal_status()}))
+
+        async def forward_output() -> None:
+            while True:
+                chunk = await queue.get()
+                if chunk is None:
+                    break
+                await websocket.send_text(json.dumps({"type": "output", "data": chunk}))
+
+        async def receive_input() -> None:
+            while True:
+                message = await websocket.receive_text()
+                payload = json.loads(message)
+                kind = payload.get("type")
+                if kind == "input":
+                    manager.write_terminal(payload.get("data", ""))
+                elif kind == "resize":
+                    manager.resize_terminal(
+                        int(payload.get("cols", settings.terminal_cols)),
+                        int(payload.get("rows", settings.terminal_rows)),
+                    )
+
+        sender = asyncio.create_task(forward_output())
+        receiver = asyncio.create_task(receive_input())
+        done, pending = await asyncio.wait(
+            {sender, receiver},
+            return_when=asyncio.FIRST_COMPLETED,
         )
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    async def stream() -> AsyncIterator[str]:
-        logger.info("Running Codex prompt in %s", workdir)
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            cwd=str(workdir),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-            env=manager._base_env(),
-        )
-        assert process.stdout is not None
-        while True:
-            chunk = await process.stdout.read(1024)
-            if not chunk:
-                break
-            yield strip_ansi(chunk.decode("utf-8", errors="replace"))
-
-        returncode = await process.wait()
-        if returncode != 0:
-            yield f"\\n\\n[Codex exited with status {returncode}]"
-
-    return StreamingResponse(stream(), media_type="text/plain; charset=utf-8")
+        for task in pending:
+            task.cancel()
+        for task in done:
+            task.result()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if "queue" in locals():
+            manager.unsubscribe_terminal(queue)

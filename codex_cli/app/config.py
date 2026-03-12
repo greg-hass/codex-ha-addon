@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     sandbox_mode: str = "workspace-write"
     approval_policy: str = "never"
     enable_web_search: bool = False
+    terminal_cols: int = 120
+    terminal_rows: int = 36
 
     model_config = SettingsConfigDict(
         env_prefix="CODEX_ADDON_",

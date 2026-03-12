@@ -1,11 +1,16 @@
-"""Helpers for managing Codex CLI auth and prompt execution."""
+"""Helpers for managing Codex CLI auth and interactive terminal sessions."""
 
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import os
+import pty
 import re
+import signal
+import struct
 import subprocess
+import termios
 import threading
 import time
 import uuid
@@ -17,6 +22,7 @@ from .config import Settings
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 DEVICE_URL_RE = re.compile(r"https://auth\.openai\.com/\S+")
 DEVICE_CODE_RE = re.compile(r"\b[A-Z0-9]{4}-[A-Z0-9]{5}\b")
+BUFFER_LIMIT = 131072
 
 
 def strip_ansi(text: str) -> str:
@@ -38,6 +44,22 @@ class LoginSession:
     returncode: int | None = None
 
 
+@dataclass
+class TerminalSession:
+    """Tracks the interactive Codex terminal process."""
+
+    id: str
+    process: subprocess.Popen[bytes]
+    master_fd: int
+    cwd: str
+    cols: int
+    rows: int
+    started_at: float = field(default_factory=time.time)
+    status: str = "running"
+    returncode: int | None = None
+    output_buffer: str = ""
+
+
 class CodexManager:
     """Wraps the Codex CLI for add-on use."""
 
@@ -45,11 +67,16 @@ class CodexManager:
         self.settings = settings
         self._lock = threading.Lock()
         self._login_sessions: dict[str, LoginSession] = {}
+        self._terminal_session: TerminalSession | None = None
+        self._subscribers: set[asyncio.Queue[str | None]] = set()
+        self._read_loop: asyncio.AbstractEventLoop | None = None
 
     def _base_env(self) -> dict[str, str]:
         env = os.environ.copy()
         env["CODEX_HOME"] = str(self.settings.codex_home_path)
         env.setdefault("HOME", "/data")
+        env.setdefault("TERM", "xterm-256color")
+        env.setdefault("COLORTERM", "truecolor")
         return env
 
     async def login_status(self) -> dict[str, str | bool]:
@@ -156,41 +183,162 @@ class CodexManager:
             session.process.terminate()
         return True
 
-    def build_exec_command(
-        self,
-        prompt: str,
-        cwd: str | None = None,
-        model: str | None = None,
-        sandbox_mode: str | None = None,
-        approval_policy: str | None = None,
-        web_search: bool | None = None,
-    ) -> tuple[list[str], Path]:
-        """Build a Codex exec invocation for the supplied request."""
-        workdir = Path(cwd or self.settings.workspace_dir).expanduser()
-        if not workdir.exists():
-            raise FileNotFoundError(f"Workspace does not exist: {workdir}")
-
+    def _build_terminal_command(self, cwd: str) -> list[str]:
         command = ["codex"]
-        selected_approval = approval_policy or self.settings.approval_policy
-        if selected_approval:
-            command.extend(["-a", selected_approval])
-
-        if web_search if web_search is not None else self.settings.enable_web_search:
+        if self.settings.approval_policy:
+            command.extend(["-a", self.settings.approval_policy])
+        if self.settings.sandbox_mode:
+            command.extend(["-s", self.settings.sandbox_mode])
+        if self.settings.enable_web_search:
             command.append("--search")
+        if self.settings.model:
+            command.extend(["-m", self.settings.model])
+        command.extend(["-C", cwd, "--no-alt-screen"])
+        return command
 
-        command.extend(
-            [
-                "exec",
-                "--skip-git-repo-check",
-                "--color",
-                "never",
-                "--sandbox",
-                sandbox_mode or self.settings.sandbox_mode,
-            ]
-        )
+    def _set_winsize(self, master_fd: int, rows: int, cols: int) -> None:
+        winsize = struct.pack("HHHH", rows, cols, 0, 0)
+        fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
 
-        selected_model = model if model is not None else self.settings.model
-        if selected_model:
-            command.extend(["-m", selected_model])
-        command.append(prompt)
-        return command, workdir
+    def ensure_terminal(self, loop: asyncio.AbstractEventLoop) -> TerminalSession:
+        """Start the Codex PTY if needed and return the active session."""
+        with self._lock:
+            if self._terminal_session and self._terminal_session.process.poll() is None:
+                self._read_loop = loop
+                return self._terminal_session
+
+            cwd = str(self.settings.workspace_path)
+            master_fd, slave_fd = pty.openpty()
+            self._set_winsize(master_fd, self.settings.terminal_rows, self.settings.terminal_cols)
+            env = self._base_env()
+            env["COLUMNS"] = str(self.settings.terminal_cols)
+            env["LINES"] = str(self.settings.terminal_rows)
+
+            process = subprocess.Popen(
+                self._build_terminal_command(cwd),
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                cwd=cwd,
+                env=env,
+                preexec_fn=os.setsid,
+            )
+            os.close(slave_fd)
+            os.set_blocking(master_fd, False)
+
+            session = TerminalSession(
+                id=str(uuid.uuid4()),
+                process=process,
+                master_fd=master_fd,
+                cwd=cwd,
+                cols=self.settings.terminal_cols,
+                rows=self.settings.terminal_rows,
+            )
+            self._terminal_session = session
+            self._read_loop = loop
+            reader = threading.Thread(target=self._read_terminal_output, args=(session,), daemon=True)
+            reader.start()
+            return session
+
+    def _broadcast(self, chunk: str | None) -> None:
+        loop = self._read_loop
+        if loop is None:
+            return
+        for queue in list(self._subscribers):
+            loop.call_soon_threadsafe(queue.put_nowait, chunk)
+
+    def _read_terminal_output(self, session: TerminalSession) -> None:
+        while True:
+            try:
+                chunk = os.read(session.master_fd, 4096)
+            except BlockingIOError:
+                if session.process.poll() is not None:
+                    break
+                time.sleep(0.02)
+                continue
+            except OSError:
+                break
+
+            if chunk:
+                text = chunk.decode("utf-8", errors="replace")
+                session.output_buffer = (session.output_buffer + text)[-BUFFER_LIMIT:]
+                self._broadcast(text)
+                continue
+
+            if session.process.poll() is not None:
+                break
+            time.sleep(0.02)
+
+        session.returncode = session.process.wait()
+        session.status = "exited"
+        self._broadcast(f"\r\n[Codex exited with status {session.returncode}]\r\n")
+        self._broadcast(None)
+        try:
+            os.close(session.master_fd)
+        except OSError:
+            pass
+
+    def subscribe_terminal(self, loop: asyncio.AbstractEventLoop) -> tuple[asyncio.Queue[str | None], TerminalSession]:
+        """Subscribe to terminal output and return the current session snapshot."""
+        session = self.ensure_terminal(loop)
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
+        self._subscribers.add(queue)
+        if session.output_buffer:
+            queue.put_nowait(session.output_buffer)
+        return queue, session
+
+    def unsubscribe_terminal(self, queue: asyncio.Queue[str | None]) -> None:
+        """Stop delivering terminal output to the given subscriber."""
+        self._subscribers.discard(queue)
+
+    def write_terminal(self, data: str) -> None:
+        """Write data to the active terminal session."""
+        session = self._terminal_session
+        if session is None or session.process.poll() is not None:
+            raise RuntimeError("Terminal session is not running")
+        os.write(session.master_fd, data.encode("utf-8"))
+
+    def resize_terminal(self, cols: int, rows: int) -> None:
+        """Resize the active PTY."""
+        session = self._terminal_session
+        if session is None or session.process.poll() is not None:
+            return
+        session.cols = cols
+        session.rows = rows
+        self._set_winsize(session.master_fd, rows, cols)
+        try:
+            os.killpg(os.getpgid(session.process.pid), signal.SIGWINCH)
+        except ProcessLookupError:
+            return
+
+    def terminal_status(self) -> dict[str, object]:
+        """Return details about the active PTY session."""
+        session = self._terminal_session
+        running = session is not None and session.process.poll() is None
+        return {
+            "running": running,
+            "session_id": session.id if session else None,
+            "cwd": session.cwd if session else str(self.settings.workspace_path),
+            "cols": session.cols if session else self.settings.terminal_cols,
+            "rows": session.rows if session else self.settings.terminal_rows,
+            "returncode": session.returncode if session else None,
+        }
+
+    def restart_terminal(self, loop: asyncio.AbstractEventLoop) -> TerminalSession:
+        """Terminate the current PTY session and start a new one."""
+        self.stop_terminal()
+        return self.ensure_terminal(loop)
+
+    def stop_terminal(self) -> None:
+        """Stop the active PTY session."""
+        with self._lock:
+            session = self._terminal_session
+            if session is None:
+                return
+            if session.process.poll() is None:
+                try:
+                    os.killpg(os.getpgid(session.process.pid), signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+            self._terminal_session = None
+
