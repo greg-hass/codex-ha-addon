@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d4ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7b2cbf;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="url(#grad1)"/>
+  
+  <!-- Robot face -->
+  <circle cx="128" cy="128" r="80" fill="#1a1a2e"/>
+  
+  <!-- Eyes -->
+  <ellipse cx="95" cy="110" rx="15" ry="20" fill="#00d4ff"/>
+  <ellipse cx="161" cy="110" rx="15" ry="20" fill="#00d4ff"/>
+  
+  <!-- Eye highlights -->
+  <circle cx="100" cy="105" r="5" fill="#ffffff"/>
+  <circle cx="166" cy="105" r="5" fill="#ffffff"/>
+  
+  <!-- Mouth -->
+  <path d="M 95 155 Q 128 175 161 155" stroke="#00d4ff" stroke-width="4" fill="none" stroke-linecap="round"/>
+  
+  <!-- Antenna -->
+  <line x1="128" y1="48" x2="128" y2="20" stroke="#00d4ff" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="128" cy="15" r="8" fill="#00d4ff"/>
+  
+  <!-- Circuit lines -->
+  <path d="M 60 180 L 40 200" stroke="#00d4ff" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+  <path d="M 196 180 L 216 200" stroke="#00d4ff" stroke-width="2" stroke-linecap="round" opacity="0.5"/>
+  <circle cx="35" cy="205" r="3" fill="#00d4ff" opacity="0.5"/>
+  <circle cx="221" cy="205" r="3" fill="#00d4ff" opacity="0.5"/>
+</svg>

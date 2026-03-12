@@ -1,0 +1,19 @@
+configuration:
+  workspace_dir:
+    name: Workspace Directory
+    description: Directory Codex should use as its default working directory
+  model:
+    name: Model
+    description: Optional model override for Codex CLI
+  sandbox_mode:
+    name: Sandbox Mode
+    description: Sandbox mode passed to codex exec
+  approval_policy:
+    name: Approval Policy
+    description: Approval policy passed to codex exec
+  enable_web_search:
+    name: Enable Web Search
+    description: Allow Codex to use live web search during exec runs
+  log_level:
+    name: Log Level
+    description: Verbosity of logging

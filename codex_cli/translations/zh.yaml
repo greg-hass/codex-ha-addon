@@ -1,0 +1,19 @@
+configuration:
+  workspace_dir:
+    name: 工作目录
+    description: Codex 默认使用的工作目录
+  model:
+    name: 模型
+    description: 可选的 Codex CLI 模型覆盖值
+  sandbox_mode:
+    name: 沙箱模式
+    description: 传递给 codex exec 的沙箱模式
+  approval_policy:
+    name: 审批策略
+    description: 传递给 codex exec 的审批策略
+  enable_web_search:
+    name: 启用网页搜索
+    description: 允许 Codex 在执行时使用实时网页搜索
+  log_level:
+    name: 日志级别
+    description: 日志详细程度
