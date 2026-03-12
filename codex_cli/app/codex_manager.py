@@ -170,21 +170,27 @@ class CodexManager:
         if not workdir.exists():
             raise FileNotFoundError(f"Workspace does not exist: {workdir}")
 
-        command = [
-            "codex",
-            "exec",
-            "--skip-git-repo-check",
-            "--color",
-            "never",
-            "--sandbox",
-            sandbox_mode or self.settings.sandbox_mode,
-            "-a",
-            approval_policy or self.settings.approval_policy,
-        ]
+        command = ["codex"]
+        selected_approval = approval_policy or self.settings.approval_policy
+        if selected_approval:
+            command.extend(["-a", selected_approval])
+
+        if web_search if web_search is not None else self.settings.enable_web_search:
+            command.append("--search")
+
+        command.extend(
+            [
+                "exec",
+                "--skip-git-repo-check",
+                "--color",
+                "never",
+                "--sandbox",
+                sandbox_mode or self.settings.sandbox_mode,
+            ]
+        )
+
         selected_model = model if model is not None else self.settings.model
         if selected_model:
             command.extend(["-m", selected_model])
-        if web_search if web_search is not None else self.settings.enable_web_search:
-            command.append("--search")
         command.append(prompt)
         return command, workdir
