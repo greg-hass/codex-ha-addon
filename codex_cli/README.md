@@ -4,7 +4,7 @@ This project turns Home Assistant into a thin wrapper around the real [Codex CLI
 
 - sign in with OpenAI device-code OAuth
 - persist the resulting Codex session in `/data/.codex`
-- run the interactive Codex terminal against `/config` or another mapped directory
+- run the interactive Codex terminal against `/homeassistant` and other mapped Home Assistant directories
 
 ## What it does
 
@@ -19,7 +19,7 @@ That means the login flow matches the current Codex CLI experience: open `https:
 ## Configuration
 
 ```yaml
-workspace_dir: /config
+workspace_dir: /homeassistant
 model: ""
 sandbox_mode: workspace-write
 approval_policy: never
@@ -30,8 +30,25 @@ log_level: info
 Notes:
 
 - Leave `model` blank to use Codex CLI defaults.
-- `workspace_dir` should point at a mapped directory such as `/config` or `/share`.
+- `workspace_dir` should point at a mapped directory such as `/homeassistant`, `/addons`, `/backup`, `/share`, `/media`, `/ssl`, or `/all_addon_configs`.
 - `danger-full-access` is available, but it should be used carefully.
+
+The add-on now mounts these Home Assistant-managed paths inside the container:
+
+- `/homeassistant`
+- `/addons`
+- `/backup`
+- `/share`
+- `/media`
+- `/ssl`
+- `/all_addon_configs`
+
+That includes common Home Assistant files such as:
+
+- `/homeassistant/configuration.yaml`
+- `/homeassistant/automations.yaml`
+- `/homeassistant/scripts.yaml`
+- `/homeassistant/scenes.yaml`
 
 ## Installation
 

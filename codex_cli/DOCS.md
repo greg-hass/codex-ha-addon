@@ -11,8 +11,27 @@ The add-on runs the official Codex CLI inside a Home Assistant add-on container 
 ## Runtime layout
 
 - Codex auth state: `/data/.codex`
-- Default workspace: `/config`
+- Default workspace: `/homeassistant`
 - Web UI and API: port `8000`
+
+## Mapped directories
+
+The add-on now exposes these Home Assistant-managed paths:
+
+- `/homeassistant`
+- `/addons`
+- `/backup`
+- `/share`
+- `/media`
+- `/ssl`
+- `/all_addon_configs`
+
+Common Home Assistant files you can work with from Codex include:
+
+- `/homeassistant/configuration.yaml`
+- `/homeassistant/automations.yaml`
+- `/homeassistant/scripts.yaml`
+- `/homeassistant/scenes.yaml`
 
 ## API summary
 
@@ -24,7 +43,7 @@ Returns:
 {
   "status": "ok",
   "logged_in": false,
-  "workspace_dir": "/config",
+  "workspace_dir": "/homeassistant",
   "codex_home": "/data/.codex"
 }
 ```

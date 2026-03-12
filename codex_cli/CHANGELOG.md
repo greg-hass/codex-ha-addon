@@ -12,3 +12,8 @@
 - Replaced the one-shot prompt form with a PTY-backed browser terminal
 - Added WebSocket terminal bridging for an interactive Codex session
 - Added restart support for the interactive terminal session
+
+## 0.2.1
+
+- Expanded add-on mounts to include Home Assistant config, backups, media, add-ons, SSL, share, and addon config directories
+- Changed the default workspace to `/homeassistant`

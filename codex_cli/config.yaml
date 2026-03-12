@@ -1,5 +1,5 @@
 name: "Codex CLI"
-version: "0.2.0"
+version: "0.2.1"
 slug: "codex_cli"
 description: "Run OpenAI Codex inside Home Assistant and sign in with device-code OAuth"
 url: "https://github.com/openai/codex"
@@ -13,7 +13,7 @@ init: false
 startup: application
 boot: auto
 options:
-  workspace_dir: "/config"
+  workspace_dir: "/homeassistant"
   model: ""
   sandbox_mode: "workspace-write"
   approval_policy: "never"
@@ -29,9 +29,21 @@ schema:
 ports:
   8000/tcp: 8000
 map:
-  - config:rw
-  - share:rw
-  - ssl
+  - type: homeassistant_config
+    read_only: false
+    path: /homeassistant
+  - type: addons
+    read_only: false
+  - type: backup
+    read_only: false
+  - type: share
+    read_only: false
+  - type: media
+    read_only: false
+  - type: ssl
+    read_only: false
+  - type: all_addon_configs
+    read_only: false
 panel_icon: "mdi:console-network-outline"
 panel_title: "Codex CLI"
 panel_admin: false
