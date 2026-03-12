@@ -343,54 +343,97 @@ async def root() -> str:
     let loginSessionId = null;
     let loginPoller = null;
 
+    function apiUrl(path) {{
+      return new URL(path, window.location.href).toString();
+    }}
+
+    async function parseError(response) {{
+      const text = await response.text();
+      try {{
+        const json = JSON.parse(text);
+        return json.detail || json.message || text;
+      }} catch (_error) {{
+        return text || `Request failed with status ${{response.status}}`;
+      }}
+    }}
+
     async function refreshStatus() {{
-      const response = await fetch("/api/auth/status");
-      const data = await response.json();
-      authPill.textContent = data.logged_in ? "Connected" : "Not connected";
-      authMessage.textContent = data.message;
-      authPill.style.color = data.logged_in ? "var(--accent)" : "var(--warn)";
-      authPill.style.background = data.logged_in ? "rgba(19, 93, 102, 0.08)" : "rgba(208, 140, 96, 0.12)";
-      if (data.logged_in) {{
-        devicePanel.hidden = true;
+      try {{
+        const response = await fetch(apiUrl("api/auth/status"));
+        if (!response.ok) {{
+          throw new Error(await parseError(response));
+        }}
+        const data = await response.json();
+        authPill.textContent = data.logged_in ? "Connected" : "Not connected";
+        authMessage.textContent = data.message;
+        authPill.style.color = data.logged_in ? "var(--accent)" : "var(--warn)";
+        authPill.style.background = data.logged_in ? "rgba(19, 93, 102, 0.08)" : "rgba(208, 140, 96, 0.12)";
+        if (data.logged_in) {{
+          devicePanel.hidden = true;
+        }}
+      }} catch (error) {{
+        authPill.textContent = "Status unavailable";
+        authMessage.textContent = error.message;
+        authPill.style.color = "var(--warn)";
+        authPill.style.background = "rgba(208, 140, 96, 0.12)";
       }}
     }}
 
     async function startLogin() {{
       loginButton.disabled = true;
-      const response = await fetch("/api/auth/login", {{ method: "POST" }});
-      const data = await response.json();
-      loginSessionId = data.id;
-      if (data.url) {{
-        deviceUrl.href = data.url;
-        deviceUrl.textContent = data.url;
+      try {{
+        const response = await fetch(apiUrl("api/auth/login"), {{ method: "POST" }});
+        if (!response.ok) {{
+          throw new Error(await parseError(response));
+        }}
+        const data = await response.json();
+        loginSessionId = data.id;
+        if (data.url) {{
+          deviceUrl.href = data.url;
+          deviceUrl.textContent = data.url;
+        }}
+        if (data.code) {{
+          deviceCode.textContent = data.code;
+        }}
+        devicePanel.hidden = false;
+        authMessage.textContent = "Finish login in your browser. This page will update automatically.";
+        if (loginPoller) {{
+          window.clearInterval(loginPoller);
+        }}
+        loginPoller = window.setInterval(pollLogin, 2000);
+      }} catch (error) {{
+        authMessage.textContent = error.message;
+      }} finally {{
+        loginButton.disabled = false;
       }}
-      if (data.code) {{
-        deviceCode.textContent = data.code;
-      }}
-      devicePanel.hidden = false;
-      authMessage.textContent = "Finish login in your browser. This page will update automatically.";
-      if (loginPoller) {{
-        window.clearInterval(loginPoller);
-      }}
-      loginPoller = window.setInterval(pollLogin, 2000);
-      loginButton.disabled = false;
     }}
 
     async function pollLogin() {{
       if (!loginSessionId) return;
-      const response = await fetch(`/api/auth/login/${{loginSessionId}}`);
-      const data = await response.json();
-      if (data.url) {{
-        deviceUrl.href = data.url;
-        deviceUrl.textContent = data.url;
-      }}
-      if (data.code) {{
-        deviceCode.textContent = data.code;
-      }}
-      if (data.status === "completed" || data.status === "failed" || data.status === "cancelled") {{
-        window.clearInterval(loginPoller);
-        loginPoller = null;
-        await refreshStatus();
+      try {{
+        const response = await fetch(apiUrl(`api/auth/login/${{loginSessionId}}`));
+        if (!response.ok) {{
+          throw new Error(await parseError(response));
+        }}
+        const data = await response.json();
+        if (data.url) {{
+          deviceUrl.href = data.url;
+          deviceUrl.textContent = data.url;
+        }}
+        if (data.code) {{
+          deviceCode.textContent = data.code;
+        }}
+        if (data.status === "completed" || data.status === "failed" || data.status === "cancelled") {{
+          window.clearInterval(loginPoller);
+          loginPoller = null;
+          await refreshStatus();
+        }}
+      }} catch (error) {{
+        if (loginPoller) {{
+          window.clearInterval(loginPoller);
+          loginPoller = null;
+        }}
+        authMessage.textContent = error.message;
       }}
     }}
 
@@ -399,30 +442,33 @@ async def root() -> str:
       if (!prompt) return;
       runButton.disabled = true;
       output.textContent = "";
-      const response = await fetch("/api/exec", {{
-        method: "POST",
-        headers: {{ "Content-Type": "application/json" }},
-        body: JSON.stringify({{
-          prompt,
-          cwd: cwdInput.value.trim() || null,
-          model: modelInput.value.trim() || null
-        }})
-      }});
-      if (!response.ok || !response.body) {{
-        output.textContent = await response.text();
-        runButton.disabled = false;
-        return;
-      }}
+      try {{
+        const response = await fetch(apiUrl("api/exec"), {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json" }},
+          body: JSON.stringify({{
+            prompt,
+            cwd: cwdInput.value.trim() || null,
+            model: modelInput.value.trim() || null
+          }})
+        }});
+        if (!response.ok || !response.body) {{
+          throw new Error(await parseError(response));
+        }}
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      while (true) {{
-        const {{ value, done }} = await reader.read();
-        if (done) break;
-        output.textContent += decoder.decode(value, {{ stream: true }});
-        output.scrollTop = output.scrollHeight;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        while (true) {{
+          const {{ value, done }} = await reader.read();
+          if (done) break;
+          output.textContent += decoder.decode(value, {{ stream: true }});
+          output.scrollTop = output.scrollHeight;
+        }}
+      }} catch (error) {{
+        output.textContent = error.message;
+      }} finally {{
+        runButton.disabled = false;
       }}
-      runButton.disabled = false;
     }}
 
     loginButton.addEventListener("click", startLogin);
