@@ -453,7 +453,7 @@ async def root() -> str:
         try {{
           const payload = JSON.parse(event.data);
           if (payload.type === "status") {{
-            terminalStatus.textContent = payload.running ? `Connected to ${payload.cwd}` : "Terminal stopped";
+            terminalStatus.textContent = payload.running ? `Connected to ${{payload.cwd}}` : "Terminal stopped";
             return;
           }}
           if (payload.type === "output") {{
