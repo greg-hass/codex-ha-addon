@@ -170,6 +170,12 @@ async def root() -> str:
       flex-wrap: wrap;
       gap: 12px;
     }}
+    .shortcut-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }}
     button {{
       border: 0;
       border-radius: 14px;
@@ -183,6 +189,13 @@ async def root() -> str:
     button:disabled {{ opacity: 0.55; cursor: not-allowed; transform: none; }}
     .primary {{ background: var(--accent); color: white; }}
     .secondary {{ background: rgba(20, 95, 104, 0.1); color: var(--accent); }}
+    .shortcut {{
+      text-align: left;
+      line-height: 1.25;
+      background: rgba(20, 95, 104, 0.08);
+      color: var(--accent);
+      min-height: 66px;
+    }}
     .terminal-shell {{
       display: grid;
       grid-template-rows: auto 1fr;
@@ -276,6 +289,14 @@ async def root() -> str:
           <p class="tiny"><code>rg "entity_id" /homeassistant</code> searches config references.</p>
           <p class="tiny"><code>codex</code> opens the interactive agent in the current directory.</p>
           <p class="tiny"><code>ha core logs</code> helps with runtime errors when the HA CLI is available.</p>
+          <div class="shortcut-grid">
+            <button class="shortcut" data-command="cd /homeassistant && ls -la&#10;">Open config</button>
+            <button class="shortcut" data-command="cd /homeassistant && sed -n '1,240p' automations.yaml&#10;">Open automations</button>
+            <button class="shortcut" data-command="cd /homeassistant && sed -n '1,240p' configuration.yaml&#10;">Open configuration</button>
+            <button class="shortcut" data-command="cd /homeassistant && sed -n '1,240p' scripts.yaml&#10;">Open scripts</button>
+            <button class="shortcut" data-command="cd /homeassistant && rg &quot;entity_id|service:&quot; .&#10;">Search references</button>
+            <button class="shortcut" data-command="ha core logs&#10;">HA logs</button>
+          </div>
         </div>
       </aside>
 
@@ -305,6 +326,7 @@ async def root() -> str:
     const refreshButton = document.getElementById("refresh-button");
     const restartButton = document.getElementById("restart-button");
     const terminalStatus = document.getElementById("terminal-status");
+    const shortcutButtons = Array.from(document.querySelectorAll(".shortcut"));
     let loginSessionId = null;
     let loginPoller = null;
     let socket = null;
@@ -479,6 +501,17 @@ async def root() -> str:
     term.onData((data) => {{
       if (!socket || socket.readyState !== WebSocket.OPEN) return;
       socket.send(JSON.stringify({{ type: "input", data }}));
+    }});
+
+    shortcutButtons.forEach((button) => {{
+      button.addEventListener("click", () => {{
+        const command = button.dataset.command || "";
+        if (!socket || socket.readyState !== WebSocket.OPEN) {{
+          terminalStatus.textContent = "Terminal is not connected yet";
+          return;
+        }}
+        socket.send(JSON.stringify({{ type: "input", data: command }}));
+      }});
     }});
 
     window.addEventListener("resize", sendResize);
