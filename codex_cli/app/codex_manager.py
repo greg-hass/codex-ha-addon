@@ -75,8 +75,8 @@ class CodexManager:
         env = os.environ.copy()
         env["CODEX_HOME"] = str(self.settings.codex_home_path)
         env.setdefault("HOME", "/data")
-        env.setdefault("TERM", "xterm-256color")
-        env.setdefault("COLORTERM", "truecolor")
+        env["TERM"] = "xterm-256color"
+        env["COLORTERM"] = "truecolor"
         return env
 
     async def login_status(self) -> dict[str, str | bool]:
@@ -341,4 +341,3 @@ class CodexManager:
                 except ProcessLookupError:
                     pass
             self._terminal_session = None
-
