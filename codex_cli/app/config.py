@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     enable_web_search: bool = False
     terminal_cols: int = 120
     terminal_rows: int = 36
+    terminal_idle_timeout: int = 300
 
     model_config = SettingsConfigDict(
         env_prefix="CODEX_ADDON_",

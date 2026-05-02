@@ -27,6 +27,7 @@ export CODEX_ADDON_MODEL="$(read_option 'model' '')"
 export CODEX_ADDON_SANDBOX_MODE="$(read_option 'sandbox_mode' 'danger-full-access')"
 export CODEX_ADDON_APPROVAL_POLICY="$(read_option 'approval_policy' 'never')"
 export CODEX_ADDON_ENABLE_WEB_SEARCH="$(read_option 'enable_web_search' 'false')"
+export CODEX_ADDON_TERMINAL_IDLE_TIMEOUT="$(read_option 'terminal_idle_timeout' '300')"
 export CODEX_ADDON_CODEX_HOME="/data/.codex"
 
 mkdir -p "${CODEX_ADDON_CODEX_HOME}"
@@ -34,6 +35,7 @@ mkdir -p "${CODEX_ADDON_CODEX_HOME}"
 bashio::log.info "Starting Codex CLI add-on"
 bashio::log.info "Workspace: ${CODEX_ADDON_WORKSPACE_DIR}"
 bashio::log.info "Sandbox: ${CODEX_ADDON_SANDBOX_MODE}"
+bashio::log.info "Terminal idle timeout: ${CODEX_ADDON_TERMINAL_IDLE_TIMEOUT}s"
 
 cd /app
 exec uvicorn app.main:app \

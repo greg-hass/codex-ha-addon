@@ -9,6 +9,7 @@ RUN apk add --no-cache \
     py3-virtualenv \
     nodejs \
     npm \
+    && apk add --no-cache --virtual .build-deps \
     gcc \
     musl-dev \
     libffi-dev
@@ -18,7 +19,9 @@ RUN python3 -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
     && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt \
     && npm install -g @openai/codex@0.128.0 \
-    && codex --version
+    && codex --version \
+    && npm cache clean --force \
+    && apk del .build-deps
 
 COPY app/ ./app/
 COPY run.sh /run.sh

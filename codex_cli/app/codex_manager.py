@@ -70,6 +70,7 @@ class CodexManager:
         self._terminal_session: TerminalSession | None = None
         self._subscribers: set[asyncio.Queue[str | None]] = set()
         self._read_loop: asyncio.AbstractEventLoop | None = None
+        self._idle_stop_timer: threading.Timer | None = None
 
     def _base_env(self) -> dict[str, str]:
         env = os.environ.copy()
@@ -203,6 +204,7 @@ class CodexManager:
     def ensure_terminal(self, loop: asyncio.AbstractEventLoop) -> TerminalSession:
         """Start the Codex PTY if needed and return the active session."""
         with self._lock:
+            self._cancel_idle_stop_timer()
             if self._terminal_session and self._terminal_session.process.poll() is None:
                 self._read_loop = loop
                 return self._terminal_session
@@ -289,7 +291,31 @@ class CodexManager:
 
     def unsubscribe_terminal(self, queue: asyncio.Queue[str | None]) -> None:
         """Stop delivering terminal output to the given subscriber."""
-        self._subscribers.discard(queue)
+        with self._lock:
+            self._subscribers.discard(queue)
+            if not self._subscribers:
+                self._schedule_idle_stop()
+
+    def _cancel_idle_stop_timer(self) -> None:
+        if self._idle_stop_timer is not None:
+            self._idle_stop_timer.cancel()
+            self._idle_stop_timer = None
+
+    def _schedule_idle_stop(self) -> None:
+        self._cancel_idle_stop_timer()
+        timeout = self.settings.terminal_idle_timeout
+        if timeout <= 0:
+            return
+        self._idle_stop_timer = threading.Timer(timeout, self._stop_terminal_if_idle)
+        self._idle_stop_timer.daemon = True
+        self._idle_stop_timer.start()
+
+    def _stop_terminal_if_idle(self) -> None:
+        with self._lock:
+            self._idle_stop_timer = None
+            if self._subscribers:
+                return
+            self._terminate_terminal_locked()
 
     def write_terminal(self, data: str) -> None:
         """Write data to the active terminal session."""
@@ -332,12 +358,17 @@ class CodexManager:
     def stop_terminal(self) -> None:
         """Stop the active PTY session."""
         with self._lock:
-            session = self._terminal_session
-            if session is None:
-                return
-            if session.process.poll() is None:
-                try:
-                    os.killpg(os.getpgid(session.process.pid), signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
-            self._terminal_session = None
+            self._cancel_idle_stop_timer()
+            self._terminate_terminal_locked()
+
+    def _terminate_terminal_locked(self) -> None:
+        """Terminate the active PTY session while holding the manager lock."""
+        session = self._terminal_session
+        if session is None:
+            return
+        if session.process.poll() is None:
+            try:
+                os.killpg(os.getpgid(session.process.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        self._terminal_session = None
