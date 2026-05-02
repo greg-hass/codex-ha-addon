@@ -17,7 +17,7 @@ COPY requirements.txt .
 RUN python3 -m venv /opt/venv \
     && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
     && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt \
-    && npm install -g @openai/codex@0.114.0 \
+    && npm install -g @openai/codex@0.128.0 \
     && codex --version
 
 COPY app/ ./app/
