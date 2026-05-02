@@ -116,6 +116,7 @@ async def root() -> str:
 
   <script src="./static/xterm.js"></script>
   <script src="./static/xterm-addon-fit.js"></script>
+  <script src="./static/xterm-addon-web-links.js"></script>
   <script>
     let socket = null;
     let resizeTimer = null;
@@ -141,7 +142,12 @@ async def root() -> str:
       scrollback: 5000
     });
     const fitAddon = new FitAddon.FitAddon();
+    const webLinksAddon = new WebLinksAddon.WebLinksAddon((event, uri) => {
+      event.preventDefault();
+      window.open(uri, "_blank", "noopener,noreferrer");
+    });
     term.loadAddon(fitAddon);
+    term.loadAddon(webLinksAddon);
     term.open(document.getElementById("terminal"));
 
     function fitAndResize() {
